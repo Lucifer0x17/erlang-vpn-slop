@@ -1,0 +1,28 @@
+{application, erlvpn_client, [
+    {description, "ErlVPN - VPN client"},
+    {vsn, "0.1.0"},
+    {registered, [
+        erlvpn_client_sup
+    ]},
+    {mod, {erlvpn_client_app, []}},
+    {applications, [
+        kernel,
+        stdlib,
+        crypto,
+        ssl,
+        erlvpn_common
+    ]},
+    {env, [
+        {server_address, "127.0.0.1"},
+        {server_port, 4433},
+        {transport_mode, quic_stream},
+        {auth_method, token},
+        {kill_switch, true},
+        {reconnect_attempts, 10},
+        {reconnect_backoff_max, 30000},
+        {enable_0rtt, true}
+    ]},
+    {modules, []},
+    {licenses, ["Apache-2.0"]},
+    {links, []}
+]}.
