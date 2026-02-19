@@ -1,0 +1,36 @@
+{application, erlvpn_server, [
+    {description, "ErlVPN - High-performance VPN server over HTTP/3"},
+    {vsn, "0.1.0"},
+    {registered, [
+        erlvpn_server_sup,
+        erlvpn_quic_listener,
+        erlvpn_tun_manager,
+        erlvpn_router,
+        erlvpn_ip_pool,
+        erlvpn_dns,
+        erlvpn_auth,
+        erlvpn_metrics
+    ]},
+    {mod, {erlvpn_server_app, []}},
+    {applications, [
+        kernel,
+        stdlib,
+        crypto,
+        ssl,
+        erlvpn_common
+    ]},
+    {env, [
+        {listen_port, 4433},
+        {listen_address, "0.0.0.0"},
+        {max_clients, 10000},
+        {tunnel_ipv4_cidr, "10.8.0.0/16"},
+        {tunnel_mtu, 1280},
+        {keepalive_interval, 25},
+        {keepalive_timeout, 60},
+        {auth_method, token},
+        {dns_upstream, ["1.1.1.1", "8.8.8.8"]}
+    ]},
+    {modules, []},
+    {licenses, ["Apache-2.0"]},
+    {links, []}
+]}.
