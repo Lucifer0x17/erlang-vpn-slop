@@ -105,6 +105,14 @@ connecting(state_timeout, auth_timeout, Data) ->
 connecting(info, {ctrl_stream, Stream}, Data) ->
     {next_state, authenticating, Data#data{ctrl_stream = Stream}};
 
+connecting(info, {quic, new_stream, Stream, _Flags}, Data) ->
+    ?LOG_DEBUG(#{msg => "Client stream received", stream => Stream}),
+    NewData = case Data#data.ctrl_stream of
+        undefined -> Data#data{ctrl_stream = Stream, data_stream = Stream};
+        _ -> Data#data{data_stream = Stream}
+    end,
+    {next_state, authenticating, NewData};
+
 connecting(info, {quic_data, _Stream, Bin}, Data) ->
     %% Got data before fully connected, buffer it and move to auth
     {next_state, authenticating, Data#data{buffer = Bin}};
@@ -387,16 +395,20 @@ send_to_client(Packet, Data) ->
     },
     {keep_state, NewData}.
 
-do_send_control(Frame, #data{ctrl_stream = Stream}) when Stream =/= undefined ->
-    %% In a real implementation, this would call quicer:send/2
-    %% For now, we send to the stream reference
+do_send_control(Frame, #data{ctrl_stream = Stream}) when is_pid(Stream) ->
     catch erlang:send(Stream, {send, Frame}),
+    ok;
+do_send_control(Frame, #data{ctrl_stream = Stream}) when Stream =/= undefined ->
+    catch quicer:send(Stream, Frame),
     ok;
 do_send_control(_Frame, _Data) ->
     ok.
 
-do_send_data(Frame, #data{data_stream = Stream}) when Stream =/= undefined ->
+do_send_data(Frame, #data{data_stream = Stream}) when is_pid(Stream) ->
     catch erlang:send(Stream, {send, Frame}),
+    ok;
+do_send_data(Frame, #data{data_stream = Stream}) when Stream =/= undefined ->
+    catch quicer:send(Stream, Frame),
     ok;
 do_send_data(_Frame, _Data) ->
     ok.
@@ -416,6 +428,20 @@ cleanup(#data{tunnel_ip = IP, keepalive_ref = KRef}) ->
     end,
     ok.
 
+handle_common(info, {quic, Bin, Stream, _Props}, _StateName, Data) when is_binary(Bin) ->
+    %% Translate quicer native message format to internal format
+    {keep_state, Data, [{next_event, info, {quic_data, Stream, Bin}}]};
+handle_common(info, {quic, closed, _Conn, _Flags}, _StateName, Data) ->
+    ?LOG_WARNING(#{msg => "QUIC connection closed",
+                   session_id => Data#data.session_id}),
+    {next_state, disconnecting, Data, [{next_event, internal, connection_closed}]};
+handle_common(info, {quic, stream_closed, _Stream, _Flags}, _StateName, Data) ->
+    {keep_state, Data};
+handle_common(info, {quic, peer_send_shutdown, _Stream, _}, _StateName, Data) ->
+    {keep_state, Data};
+handle_common(info, {quic, new_stream, Stream, _Flags}, _StateName, Data) ->
+    %% Late stream arrival (after connecting state) — use as data stream
+    {keep_state, Data#data{data_stream = Stream}};
 handle_common({call, From}, get_info, _StateName, Data) ->
     Info = #{session_id => Data#data.session_id,
              client_id => Data#data.client_id,

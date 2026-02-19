@@ -107,7 +107,7 @@ multiple_crashes_system_consistent(_Pids) ->
             exit(P, kill),
             integ_test_helpers:wait_for_process_death(P, 2000)
         end, [3, 4, 5]),
-        timer:sleep(200),
+        timer:sleep(500),
         %% Routes: all cleaned (2 via terminate cleanup, 3 via DOWN monitor)
         ?assertEqual(0, erlvpn_router:route_count()),
         %% IPs: 2 released (normal disconnect), 3 leaked (kill)

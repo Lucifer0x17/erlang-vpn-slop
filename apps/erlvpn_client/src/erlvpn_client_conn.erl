@@ -364,19 +364,36 @@ handle_control_message(Bin, Data) ->
             {keep_state, Data}
     end.
 
-do_send_control(Frame, #data{ctrl_stream = Stream}) when Stream =/= undefined ->
+do_send_control(Frame, #data{ctrl_stream = Stream}) when is_pid(Stream) ->
     catch erlang:send(Stream, {send, Frame}),
+    ok;
+do_send_control(Frame, #data{ctrl_stream = Stream}) when Stream =/= undefined ->
+    catch quicer:send(Stream, Frame),
     ok;
 do_send_control(_, _) -> ok.
 
-do_send_data(Frame, #data{data_stream = Stream}) when Stream =/= undefined ->
+do_send_data(Frame, #data{data_stream = Stream}) when is_pid(Stream) ->
     catch erlang:send(Stream, {send, Frame}),
+    ok;
+do_send_data(Frame, #data{data_stream = Stream}) when Stream =/= undefined ->
+    catch quicer:send(Stream, Frame),
     ok;
 do_send_data(_, _) -> ok.
 
 cancel_keepalive(#data{keepalive_ref = undefined}) -> ok;
 cancel_keepalive(#data{keepalive_ref = Ref}) -> erlang:cancel_timer(Ref).
 
+handle_common(info, {quic, Bin, Stream, _Props}, _StateName, Data) when is_binary(Bin) ->
+    %% Translate quicer native message format to internal format
+    {keep_state, Data, [{next_event, info, {quic_data, Stream, Bin}}]};
+handle_common(info, {quic, closed, _Conn, _Flags}, _StateName, Data) ->
+    ?LOG_WARNING(#{msg => "QUIC connection closed"}),
+    cancel_keepalive(Data),
+    maybe_reconnect(connection_closed, Data);
+handle_common(info, {quic, stream_closed, _Stream, _Flags}, _StateName, Data) ->
+    {keep_state, Data};
+handle_common(info, {quic, peer_send_shutdown, _Stream, _}, _StateName, Data) ->
+    {keep_state, Data};
 handle_common({call, From}, status, StateName, Data) ->
     {keep_state, Data, [{reply, From, #{state => StateName}}]};
 handle_common(_EventType, _Event, _StateName, Data) ->

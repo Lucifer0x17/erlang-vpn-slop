@@ -30,6 +30,7 @@ setup() ->
     %% Mock quicer (NIF not available on macOS)
     meck:new(quicer, [non_strict]),
     meck:expect(quicer, listen, fun(_, _) -> {ok, make_ref()} end),
+    meck:expect(quicer, async_accept, fun(Listener, _) -> {ok, Listener} end),
     meck:expect(quicer, close_listener, fun(_) -> ok end),
     %% Start the full supervision tree
     {ok, SupPid} = erlvpn_server_sup:start_link(),
