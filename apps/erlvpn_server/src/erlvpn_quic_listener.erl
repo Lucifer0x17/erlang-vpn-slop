@@ -4,6 +4,11 @@
 %%% Accepts incoming QUIC connections via quicer and spawns
 %%% session processes for each client. Falls back to a disabled
 %%% mode when quicer is not available (for testing).
+%%%
+%%% Handles the race condition where client-initiated streams
+%%% arrive at the listener before controlling_process transfers
+%%% ownership to the session. Orphan streams and early data are
+%%% forwarded to the most recently spawned session.
 %%% @end
 %%%-------------------------------------------------------------------
 -module(erlvpn_quic_listener).
@@ -20,10 +25,12 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
 -record(state, {
-    listener   :: reference() | undefined,
-    port       :: inet:port_number(),
-    enabled    :: boolean(),
-    acceptors = [] :: [pid()]
+    listener        :: reference() | undefined,
+    port            :: inet:port_number(),
+    enabled         :: boolean(),
+    acceptors = []  :: [pid()],
+    %% Track most recently spawned session to forward orphan streams
+    pending_session :: pid() | undefined
 }).
 
 %%====================================================================
@@ -86,25 +93,46 @@ handle_info(start_accepting, #state{listener = Listener} = State) ->
 
 handle_info({quic, new_conn, Conn, _Info}, #state{listener = Listener} = State) ->
     %% Complete TLS handshake, then spawn session
-    case quicer:handshake(Conn) of
+    State1 = case quicer:handshake(Conn) of
         {ok, Conn} ->
             handle_new_connection(Conn, State);
         {error, Reason} ->
             ?LOG_WARNING(#{msg => "QUIC handshake failed", reason => Reason}),
             catch quicer:close_connection(Conn),
-            ok
+            State
     end,
     %% Re-arm acceptor for next connection
     catch quicer:async_accept(Listener, #{}),
-    {noreply, State};
+    {noreply, State1};
 
 handle_info({quic, connected, Conn, _Info}, State) ->
     ?LOG_DEBUG(#{msg => "QUIC connection established", conn => Conn}),
     {noreply, State};
 
-handle_info({quic, new_stream, Stream, #{is_orphan := true} = Info}, State) ->
-    %% Orphan stream - need to find or create session for it
-    handle_new_stream(Stream, Info, State);
+%% Orphan stream: arrived at listener before controlling_process took effect.
+%% Forward to the session that was just spawned for this connection.
+handle_info({quic, new_stream, Stream, _Flags},
+            #state{pending_session = SessionPid} = State)
+  when is_pid(SessionPid) ->
+    ?LOG_DEBUG(#{msg => "Forwarding orphan stream to session",
+                 session => SessionPid}),
+    SessionPid ! {quic, new_stream, Stream, #{}},
+    catch quicer:controlling_process(Stream, SessionPid),
+    {noreply, State#state{pending_session = undefined}};
+
+handle_info({quic, new_stream, Stream, _Flags}, State) ->
+    ?LOG_WARNING(#{msg => "Orphan stream with no pending session",
+                   stream => Stream}),
+    {noreply, State};
+
+%% Data that arrived at the listener before stream ownership transferred.
+%% Forward to pending session.
+handle_info({quic, Data, Stream, Props},
+            #state{pending_session = SessionPid} = State)
+  when is_binary(Data), is_pid(SessionPid) ->
+    ?LOG_DEBUG(#{msg => "Forwarding early stream data to session"}),
+    SessionPid ! {quic, Data, Stream, Props},
+    {noreply, State};
 
 handle_info({quic, shutdown, _Conn, _Info}, State) ->
     ?LOG_INFO(#{msg => "QUIC listener shutdown"}),
@@ -177,17 +205,15 @@ handle_new_connection(Conn, State) ->
                         session_pid => SessionPid}),
             %% Transfer connection ownership to the session process
             catch quicer:controlling_process(Conn, SessionPid),
-            {noreply, State};
+            %% Store session PID to forward any orphan streams/data
+            %% that were already queued in our mailbox before the transfer
+            State#state{pending_session = SessionPid};
         {error, Reason} ->
             ?LOG_ERROR(#{msg => "Failed to start session",
                          reason => Reason}),
             catch quicer:close_connection(Conn),
-            {noreply, State}
+            State
     end.
-
-handle_new_stream(Stream, _Info, State) ->
-    ?LOG_DEBUG(#{msg => "Orphan stream received", stream => Stream}),
-    {noreply, State}.
 
 is_quicer_available() ->
     case code:which(quicer) of
