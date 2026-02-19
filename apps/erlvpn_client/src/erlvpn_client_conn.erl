@@ -296,7 +296,7 @@ try_quic_connect(#client_config{server_address = Addr, server_port = Port}) ->
             try
                 case quicer:connect(Addr, Port, ConnOpts, 10000) of
                     {ok, Conn} ->
-                        case quicer:start_stream(Conn, #{}) of
+                        case quicer:start_stream(Conn, #{active => true}) of
                             {ok, Stream} -> {ok, Conn, Stream};
                             {error, R} -> {error, {stream_failed, R}};
                             {error, R, _} -> {error, {stream_failed, R}}
@@ -371,7 +371,11 @@ do_send_control(Frame, #data{ctrl_stream = Stream}) when is_pid(Stream) ->
     catch erlang:send(Stream, {send, Frame}),
     ok;
 do_send_control(Frame, #data{ctrl_stream = Stream}) when Stream =/= undefined ->
-    catch quicer:send(Stream, Frame),
+    Result = try quicer:send(Stream, Frame)
+             catch E:R -> {error, {E, R}}
+             end,
+    ?LOG_INFO(#{msg => "quicer:send ctrl result", result => Result,
+                size => byte_size(Frame)}),
     ok;
 do_send_control(_, _) -> ok.
 

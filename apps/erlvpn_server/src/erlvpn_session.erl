@@ -108,6 +108,8 @@ connecting(info, {ctrl_stream, Stream}, Data) ->
 connecting(info, {quic, new_stream, Stream, _Flags}, Data) ->
     ?LOG_INFO(#{msg => "Session received stream",
                 session_id => Data#data.session_id, stream => Stream}),
+    %% Ensure stream is in active receive mode so data arrives as messages
+    activate_stream(Stream),
     NewData = case Data#data.ctrl_stream of
         undefined -> Data#data{ctrl_stream = Stream, data_stream = Stream};
         _ -> Data#data{data_stream = Stream}
@@ -453,6 +455,7 @@ handle_common(info, {quic, new_stream, Stream, _Flags}, StateName, Data) ->
     ?LOG_INFO(#{msg => "Session late stream arrival",
                 session_id => Data#data.session_id,
                 state => StateName}),
+    activate_stream(Stream),
     {keep_state, Data#data{data_stream = Stream}};
 handle_common(info, {quic, EventType, _Handle, _Props}, StateName, Data) ->
     ?LOG_INFO(#{msg => "Session unhandled quic event",
@@ -472,3 +475,22 @@ handle_common(EventType, Event, StateName, Data) ->
                 event_type => EventType,
                 event => Event}),
     {keep_state, Data}.
+
+%% Ensure a quicer stream is in active receive mode.
+%% Tries setopt first, falls back to async_recv as a trigger.
+activate_stream(Stream) ->
+    Result = try quicer:setopt(Stream, active, true)
+             catch E:R -> {error, {E, R}}
+             end,
+    ?LOG_INFO(#{msg => "Stream activate", result => Result, stream => Stream}),
+    case Result of
+        ok -> ok;
+        {ok, _} -> ok;
+        _ ->
+            %% setopt might not support 'active' — try async_recv to trigger delivery
+            RecvResult = try quicer:async_recv(Stream, 0)
+                         catch E2:R2 -> {error, {E2, R2}}
+                         end,
+            ?LOG_INFO(#{msg => "Stream async_recv fallback", result => RecvResult}),
+            ok
+    end.
