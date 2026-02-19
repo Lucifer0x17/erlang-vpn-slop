@@ -1,0 +1,65 @@
+# ErlVPN Server Configuration
+# See PRD.md for full documentation of all options
+
+[server]
+listen_port = 4433
+listen_address = "0.0.0.0"
+max_clients = 10000
+log_level = "info"
+
+[tls]
+cert_file = "certs/server.crt"
+key_file = "certs/server.key"
+# Optional: CA for mutual TLS client auth
+# client_ca_file = "certs/ca.crt"
+
+[tunnel]
+device_name = "erlvpn0"
+ipv4_cidr = "10.8.0.0/16"
+ipv6_cidr = "fd00:erlvpn::/64"
+mtu = 1280
+enable_ipv6 = true
+
+[routing]
+# Routes pushed to clients (CIDR list)
+# "0.0.0.0/0" = full tunnel, or specify split tunnel CIDRs
+allowed_ips = ["0.0.0.0/0", "::/0"]
+excluded_ips = []
+allow_client_to_client = false
+enable_nat = true
+
+[dns]
+enabled = true
+upstream_servers = ["1.1.1.1", "8.8.8.8"]
+upstream_doh = false
+cache_size = 10000
+
+[auth]
+method = "token"
+token_file = "etc/tokens"
+session_token_ttl = "24h"
+max_auth_attempts = 5
+auth_timeout = "30s"
+
+[keepalive]
+interval = 25
+timeout = 60
+kill_switch_timeout = 60
+
+[performance]
+schedulers = "auto"
+quic_max_streams_per_connection = 4
+quic_datagram_enabled = true
+tun_read_batch_size = 64
+
+[metrics]
+enabled = true
+listen_port = 9100
+listen_address = "127.0.0.1"
+
+[logging]
+level = "info"
+format = "json"
+# file = "/var/log/erlvpn/erlvpn.log"
+# max_file_size = "100MB"
+# max_files = 10

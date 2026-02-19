@@ -1,0 +1,36 @@
+# ErlVPN Client Configuration
+# See PRD.md for full documentation of all options
+
+[connection]
+server_address = "127.0.0.1"
+server_port = 4433
+# Transport mode: "quic_stream", "quic_datagram", "http3"
+transport_mode = "quic_stream"
+
+[auth]
+method = "token"
+token = "your-auth-token-here"
+# For certificate auth:
+# method = "certificate"
+# cert_file = "certs/client.crt"
+# key_file = "certs/client.key"
+
+[tunnel]
+# Override server-pushed routes (optional)
+# allowed_ips = ["10.0.0.0/8"]
+# excluded_ips = ["192.168.1.0/24"]
+
+[dns]
+# Override server-pushed DNS (optional)
+# servers = ["10.8.0.1"]
+
+[kill_switch]
+enabled = true
+# mode: "system" (block all non-VPN traffic) or "app" (per-application)
+mode = "system"
+
+[advanced]
+mtu = 1280
+reconnect_attempts = 10
+reconnect_backoff_max = "30s"
+enable_0rtt = true

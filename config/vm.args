@@ -1,0 +1,38 @@
+## Name of the node
+-sname erlvpn
+
+## Cookie for distributed Erlang
+-setcookie erlvpn_secret_cookie_change_me
+
+## Enable kernel poll (epoll/kqueue)
++K true
+
+## Async thread pool size
++A 32
+
+## Max number of processes (need many for VPN client sessions)
++P 1048576
+
+## Max number of ports
++Q 1048576
+
+## Schedulers: auto-detect CPU cores
++S auto:auto
+
+## Scheduler bind type: default binding
++stbt db
+
+## Scheduler busy wait threshold
++sbwt very_long
+
+## Distribution buffer busy limit (KB)
++zdbbl 32768
+
+## Max ETS tables
+-env ERL_MAX_ETS_TABLES 50000
+
+## Crash dump location
+-env ERL_CRASH_DUMP /var/log/erlvpn/erl_crash.dump
+
+## Enable SMP
+-smp auto

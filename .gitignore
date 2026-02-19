@@ -1,0 +1,67 @@
+# Build artifacts
+_build/
+_checkouts/
+ebin/
+*.beam
+*.ez
+
+# Dependencies (fetched by rebar3)
+deps/
+
+# Rebar3 lock file can be committed or ignored depending on preference
+# rebar.lock
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+\#*\#
+.#*
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# Erlang crash dumps
+erl_crash.dump
+
+# Release artifacts (keep templates, ignore built releases)
+_rel/
+
+# Generated certificates (secrets - never commit)
+certs/*.pem
+certs/*.key
+certs/*.crt
+certs/*.csr
+
+# Token files (secrets)
+tokens
+*.tokens
+
+# Log files
+*.log
+logs/
+
+# Dialyzer PLT files
+*.plt
+
+# Cover data
+cover/
+*.coverdata
+
+# PropEr counterexamples
+_proper/
+
+# Temporary files
+tmp/
+temp/
+
+# Claude Code
+.claude/
