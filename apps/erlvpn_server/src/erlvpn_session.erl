@@ -106,7 +106,8 @@ connecting(info, {ctrl_stream, Stream}, Data) ->
     {next_state, authenticating, Data#data{ctrl_stream = Stream}};
 
 connecting(info, {quic, new_stream, Stream, _Flags}, Data) ->
-    ?LOG_DEBUG(#{msg => "Client stream received", stream => Stream}),
+    ?LOG_INFO(#{msg => "Session received stream",
+                session_id => Data#data.session_id, stream => Stream}),
     NewData = case Data#data.ctrl_stream of
         undefined -> Data#data{ctrl_stream = Stream, data_stream = Stream};
         _ -> Data#data{data_stream = Stream}
@@ -114,6 +115,10 @@ connecting(info, {quic, new_stream, Stream, _Flags}, Data) ->
     {next_state, authenticating, NewData};
 
 connecting(info, {quic_data, _Stream, Bin}, Data) ->
+    ?LOG_INFO(#{msg => "Session received data in connecting",
+                session_id => Data#data.session_id,
+                size => byte_size(Bin),
+                ctrl_stream => Data#data.ctrl_stream}),
     %% Got data before fully connected, buffer it and move to auth
     {next_state, authenticating, Data#data{buffer = Bin}};
 
@@ -428,8 +433,12 @@ cleanup(#data{tunnel_ip = IP, keepalive_ref = KRef}) ->
     end,
     ok.
 
-handle_common(info, {quic, Bin, Stream, _Props}, _StateName, Data) when is_binary(Bin) ->
+handle_common(info, {quic, Bin, Stream, _Props}, StateName, Data) when is_binary(Bin) ->
     %% Translate quicer native message format to internal format
+    ?LOG_INFO(#{msg => "Session quic data received",
+                session_id => Data#data.session_id,
+                state => StateName,
+                size => byte_size(Bin)}),
     {keep_state, Data, [{next_event, info, {quic_data, Stream, Bin}}]};
 handle_common(info, {quic, closed, _Conn, _Flags}, _StateName, Data) ->
     ?LOG_WARNING(#{msg => "QUIC connection closed",
@@ -439,13 +448,27 @@ handle_common(info, {quic, stream_closed, _Stream, _Flags}, _StateName, Data) ->
     {keep_state, Data};
 handle_common(info, {quic, peer_send_shutdown, _Stream, _}, _StateName, Data) ->
     {keep_state, Data};
-handle_common(info, {quic, new_stream, Stream, _Flags}, _StateName, Data) ->
+handle_common(info, {quic, new_stream, Stream, _Flags}, StateName, Data) ->
     %% Late stream arrival (after connecting state) — use as data stream
+    ?LOG_INFO(#{msg => "Session late stream arrival",
+                session_id => Data#data.session_id,
+                state => StateName}),
     {keep_state, Data#data{data_stream = Stream}};
+handle_common(info, {quic, EventType, _Handle, _Props}, StateName, Data) ->
+    ?LOG_INFO(#{msg => "Session unhandled quic event",
+                session_id => Data#data.session_id,
+                state => StateName,
+                quic_event => EventType}),
+    {keep_state, Data};
 handle_common({call, From}, get_info, _StateName, Data) ->
     Info = #{session_id => Data#data.session_id,
              client_id => Data#data.client_id,
              tunnel_ip => Data#data.tunnel_ip},
     {keep_state, Data, [{reply, From, Info}]};
-handle_common(_EventType, _Event, _StateName, Data) ->
+handle_common(EventType, Event, StateName, Data) ->
+    ?LOG_INFO(#{msg => "Session unhandled event",
+                session_id => Data#data.session_id,
+                state => StateName,
+                event_type => EventType,
+                event => Event}),
     {keep_state, Data}.

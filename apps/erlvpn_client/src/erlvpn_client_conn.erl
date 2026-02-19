@@ -147,6 +147,9 @@ authenticating(enter, _OldState, #data{config = Config} = Data) ->
         Token ->
             erlvpn_protocol:encode_session_resume(Token)
     end,
+    ?LOG_INFO(#{msg => "Sending auth frame",
+                stream => Data#data.ctrl_stream,
+                frame_size => byte_size(AuthFrame)}),
     do_send_control(AuthFrame, Data),
     {keep_state, Data, [{state_timeout, ?AUTH_TIMEOUT_MS, auth_timeout}]};
 
@@ -383,8 +386,10 @@ do_send_data(_, _) -> ok.
 cancel_keepalive(#data{keepalive_ref = undefined}) -> ok;
 cancel_keepalive(#data{keepalive_ref = Ref}) -> erlang:cancel_timer(Ref).
 
-handle_common(info, {quic, Bin, Stream, _Props}, _StateName, Data) when is_binary(Bin) ->
+handle_common(info, {quic, Bin, Stream, _Props}, StateName, Data) when is_binary(Bin) ->
     %% Translate quicer native message format to internal format
+    ?LOG_INFO(#{msg => "Client quic data received",
+                state => StateName, size => byte_size(Bin)}),
     {keep_state, Data, [{next_event, info, {quic_data, Stream, Bin}}]};
 handle_common(info, {quic, closed, _Conn, _Flags}, _StateName, Data) ->
     ?LOG_WARNING(#{msg => "QUIC connection closed"}),
@@ -394,6 +399,10 @@ handle_common(info, {quic, stream_closed, _Stream, _Flags}, _StateName, Data) ->
     {keep_state, Data};
 handle_common(info, {quic, peer_send_shutdown, _Stream, _}, _StateName, Data) ->
     {keep_state, Data};
+handle_common(info, {quic, EventType, _Handle, _Props}, StateName, _Data) ->
+    ?LOG_INFO(#{msg => "Client unhandled quic event",
+                state => StateName, quic_event => EventType}),
+    {keep_state, _Data};
 handle_common({call, From}, status, StateName, Data) ->
     {keep_state, Data, [{reply, From, #{state => StateName}}]};
 handle_common(_EventType, _Event, _StateName, Data) ->

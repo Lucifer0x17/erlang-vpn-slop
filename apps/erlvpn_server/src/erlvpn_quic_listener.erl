@@ -111,14 +111,15 @@ handle_info({quic, connected, Conn, _Info}, State) ->
 
 %% Orphan stream: arrived at listener before controlling_process took effect.
 %% Forward to the session that was just spawned for this connection.
+%% Do NOT clear pending_session — auth data may also be queued behind this.
 handle_info({quic, new_stream, Stream, _Flags},
             #state{pending_session = SessionPid} = State)
   when is_pid(SessionPid) ->
-    ?LOG_DEBUG(#{msg => "Forwarding orphan stream to session",
-                 session => SessionPid}),
+    ?LOG_INFO(#{msg => "Forwarding orphan stream to session",
+                session => SessionPid, stream => Stream}),
     SessionPid ! {quic, new_stream, Stream, #{}},
     catch quicer:controlling_process(Stream, SessionPid),
-    {noreply, State#state{pending_session = undefined}};
+    {noreply, State};
 
 handle_info({quic, new_stream, Stream, _Flags}, State) ->
     ?LOG_WARNING(#{msg => "Orphan stream with no pending session",
@@ -130,7 +131,8 @@ handle_info({quic, new_stream, Stream, _Flags}, State) ->
 handle_info({quic, Data, Stream, Props},
             #state{pending_session = SessionPid} = State)
   when is_binary(Data), is_pid(SessionPid) ->
-    ?LOG_DEBUG(#{msg => "Forwarding early stream data to session"}),
+    ?LOG_INFO(#{msg => "Forwarding early stream data to session",
+                size => byte_size(Data)}),
     SessionPid ! {quic, Data, Stream, Props},
     {noreply, State};
 
@@ -145,7 +147,8 @@ handle_info({quic, listener_stopped, _Listener}, State) ->
 handle_info({'DOWN', _Ref, process, Pid, _Reason}, #state{acceptors = Accs} = State) ->
     {noreply, State#state{acceptors = lists:delete(Pid, Accs)}};
 
-handle_info(_Info, State) ->
+handle_info(Info, State) ->
+    ?LOG_INFO(#{msg => "Listener unhandled message", info => Info}),
     {noreply, State}.
 
 terminate(_Reason, #state{listener = Listener, enabled = true}) ->
