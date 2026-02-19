@@ -106,8 +106,8 @@ connecting(info, {ctrl_stream, Stream}, Data) ->
     {next_state, authenticating, Data#data{ctrl_stream = Stream}};
 
 connecting(info, {quic, new_stream, Stream, _Flags}, Data) ->
-    ?LOG_INFO(#{msg => "Session received stream",
-                session_id => Data#data.session_id, stream => Stream}),
+    ?LOG_DEBUG(#{msg => "Session received stream",
+                 session_id => Data#data.session_id}),
     %% Ensure stream is in active receive mode so data arrives as messages
     activate_stream(Stream),
     NewData = case Data#data.ctrl_stream of
@@ -117,10 +117,6 @@ connecting(info, {quic, new_stream, Stream, _Flags}, Data) ->
     {next_state, authenticating, NewData};
 
 connecting(info, {quic_data, _Stream, Bin}, Data) ->
-    ?LOG_INFO(#{msg => "Session received data in connecting",
-                session_id => Data#data.session_id,
-                size => byte_size(Bin),
-                ctrl_stream => Data#data.ctrl_stream}),
     %% Got data before fully connected, buffer it and move to auth
     {next_state, authenticating, Data#data{buffer = Bin}};
 
@@ -435,12 +431,8 @@ cleanup(#data{tunnel_ip = IP, keepalive_ref = KRef}) ->
     end,
     ok.
 
-handle_common(info, {quic, Bin, Stream, _Props}, StateName, Data) when is_binary(Bin) ->
+handle_common(info, {quic, Bin, Stream, _Props}, _StateName, Data) when is_binary(Bin) ->
     %% Translate quicer native message format to internal format
-    ?LOG_INFO(#{msg => "Session quic data received",
-                session_id => Data#data.session_id,
-                state => StateName,
-                size => byte_size(Bin)}),
     {keep_state, Data, [{next_event, info, {quic_data, Stream, Bin}}]};
 handle_common(info, {quic, closed, _Conn, _Flags}, _StateName, Data) ->
     ?LOG_WARNING(#{msg => "QUIC connection closed",
@@ -450,30 +442,18 @@ handle_common(info, {quic, stream_closed, _Stream, _Flags}, _StateName, Data) ->
     {keep_state, Data};
 handle_common(info, {quic, peer_send_shutdown, _Stream, _}, _StateName, Data) ->
     {keep_state, Data};
-handle_common(info, {quic, new_stream, Stream, _Flags}, StateName, Data) ->
+handle_common(info, {quic, new_stream, Stream, _Flags}, _StateName, Data) ->
     %% Late stream arrival (after connecting state) — use as data stream
-    ?LOG_INFO(#{msg => "Session late stream arrival",
-                session_id => Data#data.session_id,
-                state => StateName}),
     activate_stream(Stream),
     {keep_state, Data#data{data_stream = Stream}};
-handle_common(info, {quic, EventType, _Handle, _Props}, StateName, Data) ->
-    ?LOG_INFO(#{msg => "Session unhandled quic event",
-                session_id => Data#data.session_id,
-                state => StateName,
-                quic_event => EventType}),
+handle_common(info, {quic, _EventType, _Handle, _Props}, _StateName, Data) ->
     {keep_state, Data};
 handle_common({call, From}, get_info, _StateName, Data) ->
     Info = #{session_id => Data#data.session_id,
              client_id => Data#data.client_id,
              tunnel_ip => Data#data.tunnel_ip},
     {keep_state, Data, [{reply, From, Info}]};
-handle_common(EventType, Event, StateName, Data) ->
-    ?LOG_INFO(#{msg => "Session unhandled event",
-                session_id => Data#data.session_id,
-                state => StateName,
-                event_type => EventType,
-                event => Event}),
+handle_common(_EventType, _Event, _StateName, Data) ->
     {keep_state, Data}.
 
 %% Ensure a quicer stream is in active receive mode.
@@ -482,15 +462,11 @@ activate_stream(Stream) ->
     Result = try quicer:setopt(Stream, active, true)
              catch E:R -> {error, {E, R}}
              end,
-    ?LOG_INFO(#{msg => "Stream activate", result => Result, stream => Stream}),
     case Result of
         ok -> ok;
         {ok, _} -> ok;
         _ ->
             %% setopt might not support 'active' — try async_recv to trigger delivery
-            RecvResult = try quicer:async_recv(Stream, 0)
-                         catch E2:R2 -> {error, {E2, R2}}
-                         end,
-            ?LOG_INFO(#{msg => "Stream async_recv fallback", result => RecvResult}),
+            catch quicer:async_recv(Stream, 0),
             ok
     end.

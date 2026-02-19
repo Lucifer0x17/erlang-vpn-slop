@@ -115,15 +115,14 @@ handle_info({quic, connected, Conn, _Info}, State) ->
 handle_info({quic, new_stream, Stream, _Flags},
             #state{pending_session = SessionPid} = State)
   when is_pid(SessionPid) ->
-    ?LOG_INFO(#{msg => "Forwarding orphan stream to session",
-                session => SessionPid, stream => Stream}),
+    ?LOG_DEBUG(#{msg => "Forwarding orphan stream to session",
+                 session => SessionPid}),
     SessionPid ! {quic, new_stream, Stream, #{}},
     catch quicer:controlling_process(Stream, SessionPid),
     {noreply, State};
 
-handle_info({quic, new_stream, Stream, _Flags}, State) ->
-    ?LOG_WARNING(#{msg => "Orphan stream with no pending session",
-                   stream => Stream}),
+handle_info({quic, new_stream, _Stream, _Flags}, State) ->
+    ?LOG_WARNING(#{msg => "Orphan stream with no pending session"}),
     {noreply, State};
 
 %% Data that arrived at the listener before stream ownership transferred.
@@ -131,8 +130,6 @@ handle_info({quic, new_stream, Stream, _Flags}, State) ->
 handle_info({quic, Data, Stream, Props},
             #state{pending_session = SessionPid} = State)
   when is_binary(Data), is_pid(SessionPid) ->
-    ?LOG_INFO(#{msg => "Forwarding early stream data to session",
-                size => byte_size(Data)}),
     SessionPid ! {quic, Data, Stream, Props},
     {noreply, State};
 
@@ -147,8 +144,7 @@ handle_info({quic, listener_stopped, _Listener}, State) ->
 handle_info({'DOWN', _Ref, process, Pid, _Reason}, #state{acceptors = Accs} = State) ->
     {noreply, State#state{acceptors = lists:delete(Pid, Accs)}};
 
-handle_info(Info, State) ->
-    ?LOG_INFO(#{msg => "Listener unhandled message", info => Info}),
+handle_info(_Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, #state{listener = Listener, enabled = true}) ->
