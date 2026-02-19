@@ -295,9 +295,12 @@ try_quic_connect(#client_config{server_address = Addr, server_port = Port}) ->
                     {ok, Conn} ->
                         case quicer:start_stream(Conn, #{}) of
                             {ok, Stream} -> {ok, Conn, Stream};
-                            {error, R} -> {error, {stream_failed, R}}
+                            {error, R} -> {error, {stream_failed, R}};
+                            {error, R, _} -> {error, {stream_failed, R}}
                         end;
                     {error, Reason} ->
+                        {error, Reason};
+                    {error, Reason, _Detail} ->
                         {error, Reason}
                 end
             catch _:Err -> {error, Err}

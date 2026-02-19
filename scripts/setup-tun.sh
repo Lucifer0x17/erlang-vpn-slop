@@ -6,8 +6,15 @@ set -euo pipefail
 
 DEVICE_NAME="${1:-erlvpn0}"
 TUNNEL_IP="${2:-10.8.0.1}"
-TUNNEL_CIDR="${3:-16}"
+TUNNEL_CIDR_ARG="${3:-16}"
 MTU="${4:-1280}"
+
+# Extract prefix length from CIDR if full notation given (e.g. "10.8.0.0/16" -> "16")
+if [[ "$TUNNEL_CIDR_ARG" == */* ]]; then
+    TUNNEL_CIDR="${TUNNEL_CIDR_ARG##*/}"
+else
+    TUNNEL_CIDR="$TUNNEL_CIDR_ARG"
+fi
 
 log() { echo "[erlvpn-tun] $*"; }
 err() { echo "[erlvpn-tun] ERROR: $*" >&2; exit 1; }

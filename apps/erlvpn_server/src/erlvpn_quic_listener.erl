@@ -74,9 +74,29 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({quic, new_conn, Conn, _Info}, State) ->
-    %% New QUIC connection accepted
-    handle_new_connection(Conn, State);
+handle_info(start_accepting, #state{listener = Listener} = State) ->
+    %% Arm the async acceptor — we'll receive {quic, new_conn, ...}
+    case quicer:async_accept(Listener, #{}) of
+        {ok, Listener} ->
+            {noreply, State};
+        {error, Reason} ->
+            ?LOG_ERROR(#{msg => "Failed to arm acceptor", reason => Reason}),
+            {noreply, State}
+    end;
+
+handle_info({quic, new_conn, Conn, _Info}, #state{listener = Listener} = State) ->
+    %% Complete TLS handshake, then spawn session
+    case quicer:handshake(Conn) of
+        {ok, Conn} ->
+            handle_new_connection(Conn, State);
+        {error, Reason} ->
+            ?LOG_WARNING(#{msg => "QUIC handshake failed", reason => Reason}),
+            catch quicer:close_connection(Conn),
+            ok
+    end,
+    %% Re-arm acceptor for next connection
+    catch quicer:async_accept(Listener, #{}),
+    {noreply, State};
 
 handle_info({quic, connected, Conn, _Info}, State) ->
     ?LOG_DEBUG(#{msg => "QUIC connection established", conn => Conn}),
@@ -89,6 +109,10 @@ handle_info({quic, new_stream, Stream, #{is_orphan := true} = Info}, State) ->
 handle_info({quic, shutdown, _Conn, _Info}, State) ->
     ?LOG_INFO(#{msg => "QUIC listener shutdown"}),
     {noreply, State};
+
+handle_info({quic, listener_stopped, _Listener}, State) ->
+    ?LOG_INFO(#{msg => "QUIC listener stopped"}),
+    {stop, normal, State};
 
 handle_info({'DOWN', _Ref, process, Pid, _Reason}, #state{acceptors = Accs} = State) ->
     {noreply, State#state{acceptors = lists:delete(Pid, Accs)}};
@@ -151,12 +175,8 @@ handle_new_connection(Conn, State) ->
         {ok, SessionPid} ->
             ?LOG_INFO(#{msg => "New client connection",
                         session_pid => SessionPid}),
-            %% Hand off the connection to the session
-            try quicer:handoff(Conn, SessionPid) of
-                ok -> ok;
-                _ -> ok
-            catch _:_ -> ok
-            end,
+            %% Transfer connection ownership to the session process
+            catch quicer:controlling_process(Conn, SessionPid),
             {noreply, State};
         {error, Reason} ->
             ?LOG_ERROR(#{msg => "Failed to start session",
